@@ -1,4 +1,4 @@
-package cleanscreen
+package clearscreen
 
 import (
 	"os"
