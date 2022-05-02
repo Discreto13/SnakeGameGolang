@@ -8,7 +8,7 @@ import (
 
 var clearScreen map[string]func()
 
-func init(){
+func init() {
 	clearScreen = make(map[string]func())
 	clearScreen["linux"] = func() {
 		cmd := exec.Command("clear")
@@ -22,8 +22,8 @@ func init(){
 	}
 }
 
-func ClearScreen(){
-	value,ok := clearScreen[runtime.GOOS]
+func ClearScreen() {
+	value, ok := clearScreen[runtime.GOOS]
 	if ok {
 		value()
 	} else {

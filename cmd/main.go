@@ -6,6 +6,6 @@ import (
 
 func main() {
 	snakeGame := sg.SnakeGame{}
-	snakeGame.Init(20,50,false)
+	snakeGame.Init(20, 50, false)
 	snakeGame.Run()
 }
