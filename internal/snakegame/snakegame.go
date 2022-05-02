@@ -1,61 +1,8 @@
 package snakegame
 
 import (
-	clearscreen "SnakeGameGolang/internal/clearscreen"
-	"fmt"
 	"math/rand"
 	"time"
-
-	"github.com/eiannone/keyboard"
-)
-
-type cell int8
-
-const (
-	cellEmpty cell = iota
-	cellFood
-	cellSnakeHead
-	cellSnakeTail
-)
-
-// Board structure
-type board struct {
-	hight  uint8
-	width  uint8
-	matrix [][]cell
-}
-
-// Fill board matrix with zero values
-func (b *board) clean() {
-	for i := range b.matrix {
-		for j := range b.matrix[i] {
-			b.matrix[i][j] = cellEmpty
-		}
-	}
-}
-
-// Board initializaion
-func (b *board) init(h uint8, w uint8) {
-	b.hight = h
-	b.width = w
-	b.matrix = make([][]cell, h)
-	for i := range b.matrix {
-		b.matrix[i] = make([]cell, w)
-	}
-}
-
-type direction int8
-
-// Stores coordinates
-type vertex struct {
-	x, y uint8
-}
-
-const (
-	directionUp direction = iota
-	directionRight
-	directionDown
-	directionLeft
 )
 
 // Main snake game structure
@@ -64,44 +11,88 @@ type SnakeGame struct {
 	food  vertex
 	snake []vertex
 
-	moveDirection direction
-	turnDirection chan direction
+	moveDirection Direction
+	turnDirection chan Direction
 
 	ateFood      bool
 	borderKiller bool
 	gameOver     bool
 	quit         chan bool
+
+	controller   ControllerFunc
+	displayBoard DisplayBoardFunc
 }
 
 // Initialization
-func (game *SnakeGame) Init(h uint8, w uint8, borderKiller bool) {
-	game.board.init(h, w)
-	game.turnDirection = make(chan direction, 10)
+func (game *SnakeGame) Init(boardHight uint8, boardWidth uint8, borderKiller bool, displayBoard DisplayBoardFunc, controller ControllerFunc) {
+	if boardHight > 100 || boardHight < 0 || boardWidth > 100 || boardWidth < 0 {
+		panic("Expected board size [0-100]:[0-100] was not satisfied")
+	}
+	game.board.init(boardHight, boardWidth)
+
+	if displayBoard == nil || controller == nil {
+		panic("Control and display methods is not initialized")
+	}
+	game.controller = controller
+	game.displayBoard = displayBoard
+
+	game.turnDirection = make(chan Direction, 10)
 	game.quit = make(chan bool, 1)
-	game.moveDirection = directionUp
-	game.snake = []vertex{{w / 2, h / 2}}
+	game.moveDirection = DirectionUp
+	game.snake = []vertex{{boardWidth / 2, boardHight / 2}}
 	game.borderKiller = borderKiller
 	game.generateFood()
 }
 
-// Print board matrix
-func (game *SnakeGame) PrintBoard() {
-	clearscreen.ClearScreen()
-	for hight := range game.board.matrix {
-		for widht := range game.board.matrix[hight] {
-			switch game.board.matrix[hight][widht] {
-			case cellEmpty:
-				fmt.Print("_")
-			case cellFood:
-				fmt.Print("$")
-			case cellSnakeHead:
-				fmt.Print("%")
-			case cellSnakeTail:
-				fmt.Print("*")
-			}
+// Run main loop
+func (game *SnakeGame) Run() int {
+	game.runControllerThread()
+
+	for {
+		game.calculateIteration()
+		if game.isQuit() || game.gameOver {
+			return len(game.snake) - 1
 		}
-		fmt.Println()
+
+		game.refreshBoard()
+		game.printBoard()
+		time.Sleep(time.Second / 5)
 	}
+}
+
+// Fill board matrix with zero values
+func (b *board) clean() {
+	for i := range b.matrix {
+		for j := range b.matrix[i] {
+			b.matrix[i][j] = CellEmpty
+		}
+	}
+}
+
+// Board initializaion
+func (b *board) init(boardHight uint8, boardWidth uint8) {
+	b.hight = boardHight
+	b.width = boardWidth
+	b.matrix = make([][]Cell, boardHight)
+	for i := range b.matrix {
+		b.matrix[i] = make([]Cell, boardWidth)
+	}
+}
+
+// Print board matrix
+func (game *SnakeGame) printBoard() {
+	if game.controller == nil {
+		panic("Display method is not initialized")
+	}
+	game.displayBoard(game.board.matrix)
+}
+
+// Run key-handler thread
+func (game *SnakeGame) runControllerThread() {
+	if game.controller == nil {
+		panic("Controller method is not initialized")
+	}
+	go game.controller(game.quit, game.turnDirection)
 }
 
 // Update internal board-matrix with actual snake and food coordinates
@@ -109,13 +100,13 @@ func (game *SnakeGame) refreshBoard() {
 	game.board.clean()
 	for i, v := range game.snake {
 		if i == 0 {
-			game.board.matrix[v.y][v.x] = cellSnakeHead
+			game.board.matrix[v.y][v.x] = CellSnakeHead
 		} else {
-			game.board.matrix[v.y][v.x] = cellSnakeTail
+			game.board.matrix[v.y][v.x] = CellSnakeTail
 		}
 	}
 
-	game.board.matrix[game.food.y][game.food.x] = cellFood
+	game.board.matrix[game.food.y][game.food.x] = CellFood
 }
 
 // Calculate and update the internal board matrix
@@ -177,7 +168,7 @@ func (game *SnakeGame) generateFood() {
 
 // Check and change direction according to signal
 func (game *SnakeGame) updateDirection() {
-	var newDirection direction
+	var newDirection Direction
 
 	for {
 		select {
@@ -188,10 +179,10 @@ func (game *SnakeGame) updateDirection() {
 
 		// Ignore inapplicable turn triggers
 		if newDirection == game.moveDirection ||
-			(newDirection == directionUp && game.moveDirection == directionDown) ||
-			(newDirection == directionRight && game.moveDirection == directionLeft) ||
-			(newDirection == directionDown && game.moveDirection == directionUp) ||
-			(newDirection == directionLeft && game.moveDirection == directionRight) {
+			(newDirection == DirectionUp && game.moveDirection == DirectionDown) ||
+			(newDirection == DirectionRight && game.moveDirection == DirectionLeft) ||
+			(newDirection == DirectionDown && game.moveDirection == DirectionUp) ||
+			(newDirection == DirectionLeft && game.moveDirection == DirectionRight) {
 			continue
 		}
 
@@ -203,7 +194,7 @@ func (game *SnakeGame) updateDirection() {
 // Move snake head and handle border interaction
 func (game *SnakeGame) moveSnakeHead() {
 	switch game.moveDirection {
-	case directionUp:
+	case DirectionUp:
 		if game.snake[0].y != 0 {
 			game.snake[0].y -= 1
 			break
@@ -215,7 +206,7 @@ func (game *SnakeGame) moveSnakeHead() {
 		}
 		game.snake[0].y = game.board.hight - 1
 
-	case directionRight:
+	case DirectionRight:
 		if game.snake[0].x != game.board.width-1 {
 			game.snake[0].x += 1
 			break
@@ -227,7 +218,7 @@ func (game *SnakeGame) moveSnakeHead() {
 		}
 		game.snake[0].x = 0
 
-	case directionDown:
+	case DirectionDown:
 		if game.snake[0].y != game.board.hight-1 {
 			game.snake[0].y += 1
 			break
@@ -238,7 +229,7 @@ func (game *SnakeGame) moveSnakeHead() {
 			return
 		}
 		game.snake[0].y = 0
-	case directionLeft:
+	case DirectionLeft:
 		if game.snake[0].x != 0 {
 			game.snake[0].x -= 1
 			break
@@ -252,42 +243,6 @@ func (game *SnakeGame) moveSnakeHead() {
 	}
 }
 
-// Run key-handler thread
-func (game *SnakeGame) runController() {
-	go func() {
-		keysEvents, err := keyboard.GetKeys(10)
-		if err != nil {
-			panic(err)
-		}
-		defer func() {
-			_ = keyboard.Close()
-		}()
-
-		for {
-			event := <-keysEvents
-			if event.Err != nil {
-				panic(event.Err)
-			}
-
-			switch event.Key {
-			case keyboard.KeyArrowUp:
-				game.turnDirection <- directionUp
-			case keyboard.KeyArrowRight:
-				game.turnDirection <- directionRight
-			case keyboard.KeyArrowDown:
-				game.turnDirection <- directionDown
-			case keyboard.KeyArrowLeft:
-				game.turnDirection <- directionLeft
-
-			case keyboard.KeyEsc:
-				game.quit <- true
-				return
-			default:
-			}
-		}
-	}()
-}
-
 // Exit initiation
 func (game *SnakeGame) isQuit() bool {
 	select {
@@ -295,22 +250,5 @@ func (game *SnakeGame) isQuit() bool {
 		return true
 	default:
 		return false
-	}
-}
-
-// Run main loop
-func (game *SnakeGame) Run() {
-	game.runController()
-
-	for {
-		game.calculateIteration()
-		if game.isQuit() || game.gameOver {
-			fmt.Printf("<< Game over. Score: %d >>\n", len(game.snake)-1)
-			break
-		}
-
-		game.refreshBoard()
-		game.PrintBoard()
-		time.Sleep(time.Second / 5)
 	}
 }
