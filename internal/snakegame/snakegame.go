@@ -4,7 +4,6 @@ import (
 	clearscreen "SnakeGameGolang/internal/clearscreen"
 	"fmt"
 	"math/rand"
-	"sync"
 	"time"
 
 	"github.com/eiannone/keyboard"
@@ -61,29 +60,32 @@ const (
 
 // Main snake game structure
 type SnakeGame struct {
-	snake []vertex
-	food vertex
-	ateFood bool
-	mutex sync.Mutex
-	direction direction
 	board board
+	food vertex
+	snake []vertex
+
+	moveDirection direction
+	turn chan direction
+
+	ateFood bool
+	borderKiller bool
 	gameOver bool
+	quit chan bool
 }
 
 // Initialization
-func (game *SnakeGame) Init(h uint8, w uint8) {
+func (game *SnakeGame) Init(h uint8, w uint8, borderKiller bool) {
 	game.board.init(h,w)
-	game.direction = directionLeft
-	game.snake = []vertex{{w/2,h/2},{w/2,h/2+1}}
-	game.gameOver = false
+	game.turn = make(chan direction, 10)
+	game.quit = make(chan bool, 1)
+	game.moveDirection = directionUp
+	game.snake = []vertex{{w/2,h/2}}
+	game.borderKiller = borderKiller
 	game.generateFood()
 }
 
 // Print board matrix
 func (game *SnakeGame) PrintBoard() {
-	game.mutex.Lock()
-	defer game.mutex.Unlock()
-
 	clearscreen.ClearScreen()
 	for hight := range game.board.matrix {
 		for widht := range game.board.matrix[hight] {
@@ -104,9 +106,6 @@ func (game *SnakeGame) PrintBoard() {
 
 // Update internal board-matrix with actual snake and food coordinates
 func (game *SnakeGame) refreshBoard() {
-	game.mutex.Lock()
-	defer game.mutex.Unlock()
-
 	game.board.clean()
 	for i,v := range game.snake {
 		if i == 0 {
@@ -121,10 +120,7 @@ func (game *SnakeGame) refreshBoard() {
 
 // Calculate and update the internal board matrix
 func (game *SnakeGame) calculateIteration() {
-	game.mutex.Lock()
-	defer game.mutex.Unlock()
-
-	// Move snake and grow if food eaten
+	// Move snake body and grow if food eaten
 	tailEnd := len(game.snake)-1
 	for i := tailEnd; i >= 0; i-- {
 		if i == tailEnd && game.ateFood {
@@ -136,33 +132,10 @@ func (game *SnakeGame) calculateIteration() {
 		}
 	}
 
-	// Check if faced with the border
-	switch game.direction {
-	case directionUp:
-		if game.snake[0].y == 0 {
-			game.gameOver = true
-			return
-		}
-		game.snake[0].y -= 1
-	case directionRight:
-		if game.snake[0].x == game.board.width-1 {
-			game.gameOver = true
-			return
-		}
-		game.snake[0].x += 1
-	case directionDown:
-		if game.snake[0].y == game.board.hight-1 {
-			game.gameOver = true
-			return
-		}
-		game.snake[0].y += 1
-	case directionLeft:
-		if game.snake[0].x == 0 {
-			game.gameOver = true
-			return
-		}
-		game.snake[0].x -= 1
-	}
+
+	// Update direction and check if faced with the border
+	game.updateDirection()
+	game.moveSnakeHead()
 
 	// Check if faced with ourself
 	for _,tail := range game.snake[1:] {
@@ -203,37 +176,80 @@ func (game *SnakeGame) generateFood() {
 	game.food = v
 }
 
-// Thread-safe direction change
-func (game *SnakeGame) changeDirection(newDirection direction) {
-	game.mutex.Lock()
-	defer game.mutex.Unlock()
+// Check and change direction according to signal
+func (game *SnakeGame) updateDirection() {
+	var newDirection direction
 
-	if len(game.snake) == 1 {
-		game.direction = newDirection
-		return
+	for {
+		select {
+		case newDirection = <- game.turn:
+		default:
+			return
+		}
+
+		// Ignore inapplicable turn triggers
+		if (newDirection == game.moveDirection ||
+			(newDirection == directionUp	&& game.moveDirection == directionDown) ||
+			(newDirection == directionRight	&& game.moveDirection == directionLeft) ||
+			(newDirection == directionDown	&& game.moveDirection == directionUp) ||
+			(newDirection == directionLeft	&& game.moveDirection == directionRight)) {
+			continue
+		}
+
+		game.moveDirection = newDirection
+		break
 	}
+}
 
-	switch newDirection {
+// Move snake head and handle border interaction
+func (game *SnakeGame) moveSnakeHead() {
+	switch game.moveDirection {
 	case directionUp:
-		if (game.snake[1].x == game.snake[0].x && game.snake[1].y == game.snake[0].y-1) {
+		if game.snake[0].y != 0 {
+			game.snake[0].y -= 1
 			break
 		}
-		game.direction = newDirection
+
+		if game.borderKiller {
+			game.gameOver = true
+			return
+		}
+		game.snake[0].y = game.board.hight-1;
+
 	case directionRight:
-		if (game.snake[1].y == game.snake[0].y && game.snake[1].x == game.snake[0].x+1) {
+		if game.snake[0].x != game.board.width-1 {
+			game.snake[0].x += 1
 			break
 		}
-		game.direction = newDirection
+
+		if game.borderKiller {
+			game.gameOver = true
+			return
+		}
+		game.snake[0].x = 0;
+
 	case directionDown:
-		if (game.snake[1].x == game.snake[0].x && game.snake[1].y == game.snake[0].y+1) {
+		if game.snake[0].y != game.board.hight-1 {
+			game.snake[0].y += 1
 			break
 		}
-		game.direction = newDirection
+
+		if game.borderKiller {
+			game.gameOver = true
+			return
+		}
+		game.snake[0].y = 0;
 	case directionLeft:
-		if (game.snake[1].y == game.snake[0].y && game.snake[1].x == game.snake[0].x-1) {
+		if game.snake[0].x != 0 {
+			game.snake[0].x -= 1
 			break
 		}
-		game.direction = newDirection
+
+		if game.borderKiller {
+			game.gameOver = true
+			return
+		}
+		game.snake[0].x = game.board.width-1;
 	}
 }
 
@@ -256,26 +272,31 @@ func (game *SnakeGame) runController() {
 
 			switch event.Key {
 			case keyboard.KeyArrowUp:
-				game.changeDirection(directionUp)
+				game.turn <- directionUp
 			case keyboard.KeyArrowRight:
-				game.changeDirection(directionRight)
+				game.turn <- directionRight
 			case keyboard.KeyArrowDown:
-				game.changeDirection(directionDown)
+				game.turn <- directionDown
 			case keyboard.KeyArrowLeft:
-				game.changeDirection(directionLeft)
-			}
+				game.turn <- directionLeft
 
-			if event.Key == keyboard.KeyEsc {
-				break
+			case keyboard.KeyEsc:
+				game.quit <- true
+				return
+			default:
 			}
 		}
 	}()
 }
 
-// Display game over screen
-func printGameOver() {
-	clearscreen.ClearScreen()
-	fmt.Println("<< GAME_OVER >>")
+// Exit initiation
+func (game *SnakeGame) isQuit() bool {
+	select {
+	case <- game.quit:
+		return true
+	default:
+		return false
+	}
 }
 
 // Run main loop
@@ -284,13 +305,13 @@ func (game *SnakeGame) Run() {
 
 	for {
 		game.calculateIteration()
-		if game.gameOver {
-			printGameOver()
-			return
+		if game.isQuit() || game.gameOver {
+			fmt.Printf("<< Game over. Score: %d >>\n", len(game.snake)-1)
+			break
 		}
 
 		game.refreshBoard()
 		game.PrintBoard()
-		time.Sleep(time.Second/4)
+		time.Sleep(time.Second/5)
 	}
 }
