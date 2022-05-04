@@ -18,8 +18,8 @@ const (
 	DirectionLeft
 )
 
-type ControllerFunc func(quit chan bool, turn chan Direction)
-type DisplayBoardFunc func(board [][]Cell)
+type DisplayFunc func(board [][]Cell, score int)
+type KeyHandlerFunc func(quit chan bool, turn chan Direction)
 
 // Board structure
 type board struct {

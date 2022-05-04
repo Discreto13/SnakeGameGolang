@@ -5,6 +5,10 @@ import (
 	"time"
 )
 
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
+
 // Main snake game structure
 type SnakeGame struct {
 	board board
@@ -19,27 +23,27 @@ type SnakeGame struct {
 	gameOver     bool
 	quit         chan bool
 
-	controller   ControllerFunc
-	displayBoard DisplayBoardFunc
+	display    DisplayFunc
+	keyHandler KeyHandlerFunc
 }
 
 // Initialization
-func (game *SnakeGame) Init(boardHight uint8, boardWidth uint8, borderKiller bool, displayBoard DisplayBoardFunc, controller ControllerFunc) {
+func (game *SnakeGame) Init(boardHight int, boardWidth int, borderKiller bool, display DisplayFunc, keyHandler KeyHandlerFunc) {
 	if boardHight > 100 || boardHight < 0 || boardWidth > 100 || boardWidth < 0 {
 		panic("Expected board size [0-100]:[0-100] was not satisfied")
 	}
-	game.board.init(boardHight, boardWidth)
+	game.board.init(uint8(boardHight), uint8(boardWidth))
 
-	if displayBoard == nil || controller == nil {
-		panic("Control and display methods is not initialized")
+	if display == nil || keyHandler == nil {
+		panic("Both of keyHandler and display should be specified")
 	}
-	game.controller = controller
-	game.displayBoard = displayBoard
+	game.keyHandler = keyHandler
+	game.display = display
 
 	game.turnDirection = make(chan Direction, 10)
 	game.quit = make(chan bool, 1)
 	game.moveDirection = DirectionUp
-	game.snake = []vertex{{boardWidth / 2, boardHight / 2}}
+	game.snake = []vertex{{game.board.width / 2, game.board.hight / 2}}
 	game.borderKiller = borderKiller
 	game.generateFood()
 }
@@ -81,18 +85,18 @@ func (b *board) init(boardHight uint8, boardWidth uint8) {
 
 // Print board matrix
 func (game *SnakeGame) printBoard() {
-	if game.controller == nil {
+	if game.keyHandler == nil {
 		panic("Display method is not initialized")
 	}
-	game.displayBoard(game.board.matrix)
+	game.display(game.board.matrix, len(game.snake)-1)
 }
 
 // Run key-handler thread
 func (game *SnakeGame) runControllerThread() {
-	if game.controller == nil {
+	if game.keyHandler == nil {
 		panic("Controller method is not initialized")
 	}
-	go game.controller(game.quit, game.turnDirection)
+	go game.keyHandler(game.quit, game.turnDirection)
 }
 
 // Update internal board-matrix with actual snake and food coordinates

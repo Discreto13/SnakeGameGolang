@@ -1,7 +1,7 @@
 package main
 
 import (
-	"SnakeGameGolang/internal/clearscreen"
+	cls "SnakeGameGolang/internal/clearscreen"
 	sg "SnakeGameGolang/internal/snakegame"
 	"fmt"
 
@@ -9,7 +9,27 @@ import (
 )
 
 var (
-	controller sg.ControllerFunc = func(quit chan bool, turn chan sg.Direction) {
+	displayFunc sg.DisplayFunc = func(board [][]sg.Cell, score int) {
+		cls.ClearScreen()
+		fmt.Printf("\t<Score: %d>\n", score)
+		for hight := range board {
+			for widht := range board[hight] {
+				switch board[hight][widht] {
+				case sg.CellEmpty:
+					fmt.Print("_")
+				case sg.CellFood:
+					fmt.Print("$")
+				case sg.CellSnakeHead:
+					fmt.Print("%")
+				case sg.CellSnakeTail:
+					fmt.Print("*")
+				}
+			}
+			fmt.Println()
+		}
+	}
+
+	keyHandlerFunc sg.KeyHandlerFunc = func(quit chan bool, turn chan sg.Direction) {
 		{
 			keysEvents, err := keyboard.GetKeys(10)
 			if err != nil {
@@ -43,30 +63,14 @@ var (
 			}
 		}
 	}
-
-	displayBoard sg.DisplayBoardFunc = func(board [][]sg.Cell) {
-		clearscreen.ClearScreen()
-		for hight := range board {
-			for widht := range board[hight] {
-				switch board[hight][widht] {
-				case sg.CellEmpty:
-					fmt.Print("_")
-				case sg.CellFood:
-					fmt.Print("$")
-				case sg.CellSnakeHead:
-					fmt.Print("%")
-				case sg.CellSnakeTail:
-					fmt.Print("*")
-				}
-			}
-			fmt.Println()
-		}
-	}
 )
 
 func main() {
 	snakeGame := sg.SnakeGame{}
-	snakeGame.Init(20, 50, false, displayBoard, controller)
+	snakeGame.Init(15, 15, false, displayFunc, keyHandlerFunc)
 	score := snakeGame.Run()
+
+	// Game over
+	cls.ClearScreen()
 	fmt.Printf("<< Score: %d >>\n", score)
 }
